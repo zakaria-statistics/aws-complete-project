@@ -1,0 +1,19 @@
+# Terraform local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+terraform.tfvars
+
+# Lambda build artifacts
+lambda_payload.zip
+
+# Node / misc
+node_modules/
+package-lock.json
+.DS_Store
+Thumbs.db
+
