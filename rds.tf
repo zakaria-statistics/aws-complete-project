@@ -25,8 +25,10 @@ resource "aws_security_group" "rds_sg" {
 }
 
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.project_name}-db-subnet-group"
-  subnet_ids = [aws_subnet.public_a.id]
+  name = "${var.project_name}-db-subnet-group"
+  subnet_ids = [
+    aws_subnet.public_a.id,
+  aws_subnet.public_b.id]
 
   tags = {
     Name = "${var.project_name}-db-subnet-group"
@@ -36,10 +38,9 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "postgres" {
   identifier             = "${var.project_name}-db"
   engine                 = "postgres"
-  engine_version         = "16.1"
   instance_class         = "db.t3.micro"
   allocated_storage      = 20
-  username               = "admin"
+  username               = "dbmaster"
   password               = var.db_password
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
@@ -50,3 +51,4 @@ resource "aws_db_instance" "postgres" {
     Name = "${var.project_name}-postgres"
   }
 }
+

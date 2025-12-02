@@ -90,6 +90,8 @@ resource "aws_instance" "web" {
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
   associate_public_ip_address = true
 
+  key_name = var.ssh_key_name
+
   user_data = <<-EOF
               #!/bin/bash
               yum update -y
