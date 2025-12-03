@@ -2,8 +2,12 @@ output "ec2_public_ip" {
   value = aws_instance.web.public_ip
 }
 
-output "s3_bucket_name" {
+output "primary_bucket_name" {
   value = aws_s3_bucket.app_bucket.bucket
+}
+
+output "backup_bucket_name" {
+  value = aws_s3_bucket.backup_bucket.bucket
 }
 
 output "rds_endpoint" {
@@ -11,6 +15,15 @@ output "rds_endpoint" {
   description = "Postgres endpoint (5432)"
 }
 
-output "lambda_arn" {
-  value = aws_lambda_function.s3_handler.arn
+output "rds_backup_endpoint" {
+  value       = aws_db_instance.postgres_backup.address
+  description = "Backup Postgres endpoint (5432)"
+}
+
+output "s3_replicator_lambda_arn" {
+  value = aws_lambda_function.s3_replicator.arn
+}
+
+output "db_backup_lambda_arn" {
+  value = aws_lambda_function.db_backup.arn
 }

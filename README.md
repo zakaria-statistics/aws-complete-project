@@ -9,11 +9,11 @@ This repo provisions a small AWS environment that touches most core services—n
   - Security group allows SSH only from your public IP and HTTP from anywhere.
   - IAM role/policy gives the instance S3 access via an instance profile.
   - Latest Amazon Linux 2023 `t3.micro` boots Nginx through `user_data`.
-- **S3** (`s3.tf`): Randomly suffixed bucket plus Public Access Block to enforce private storage.
-- **Lambda** (`lambda.tf` + `index.js`): Node.js 20 function with permissions for CloudWatch Logs and S3.
-- **RDS** (`rds.tf`): PostgreSQL 16.1 instance in the subnet group, reachable only from the EC2 SG.
+- **S3** (`s3.tf`): Randomly suffixed app bucket plus a backup bucket. Object-created events on the primary bucket trigger a Lambda that copies files into the backup bucket.
+- **Lambda** (`lambda.tf` + `index.js`): Two Node.js 20 functions—`s3_replicator` for bucket-to-bucket copies and `db_backup` that connects to both RDS instances to sync a sample table.
+- **RDS** (`rds.tf`): Primary PostgreSQL 16.1 instance and a second backup instance that you can keep in sync through the Lambda job.
 - **CloudWatch** (`cloudwatch.tf`): CPUUtilization alarm against the EC2 instance.
-- **Outputs** (`outputs.tf`): EC2 public IP, S3 bucket name, RDS endpoint, Lambda ARN.
+- **Outputs** (`outputs.tf`): EC2 public IP, both S3 bucket names, both RDS endpoints, and the Lambda ARNs.
 
 ## Prerequisites
 
@@ -27,10 +27,11 @@ This repo provisions a small AWS environment that touches most core services—n
 1. **Package the Lambda**
 
    ```powershell
-   zip lambda_payload.zip index.js
+   npm install
+   zip -r lambda_payload.zip index.js node_modules package.json package-lock.json
    ```
 
-   Include `node_modules` if you add dependencies.
+   Re-run the `zip` command every time you change the handler code or dependencies.
 
 2. **Initialize Terraform**
 
@@ -54,8 +55,10 @@ This repo provisions a small AWS environment that touches most core services—n
 ## Validating the Stack
 
 - **EC2**: Visit `http://<ec2_public_ip>` to see the Nginx landing page. SSH using the key pair associated with the instance (update the resource if you need a specific key).
-- **Lambda**: Test-invoke from the AWS Console or CLI. Set the `BUCKET_NAME` environment variable (via console or extend Terraform) so the function can list bucket contents.
+- **Lambda (S3 replicator)**: Upload a file to the primary bucket output from Terraform. The S3 event notification invokes the replicator Lambda which copies the object to the backup bucket. Check CloudWatch Logs for `s3_replicator` or list the destination bucket to confirm.
+- **Lambda (DB backup)**: The function runs hourly via EventBridge. You can also invoke it on-demand to copy rows from `inventory_sample` in the primary DB to the backup DB. Insert/update rows in the source table (via EC2 + `psql`) and rerun the function to observe the sync.
 - **RDS**: From the EC2 box, connect with `psql -h <rds_endpoint> -U admin`. You can also tunnel via SSH from your machine if needed.
+- **RDS backup flow**: Connect to both DB endpoints and query `inventory_sample`. The Lambda creates the table automatically and truncates it on the backup side before inserting fresh rows so you can easily confirm the replication.
 - **S3**: Upload objects to the bucket and re-run the Lambda to confirm S3 access.
 - **CloudWatch Alarm**: Stress the EC2 CPU (e.g., `yes > /dev/null`) to trigger the alarm.
 

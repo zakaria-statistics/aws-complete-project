@@ -8,7 +8,8 @@ resource "aws_security_group" "rds_sg" {
     to_port     = 5432
     protocol    = "tcp"
     security_groups = [
-      aws_security_group.ec2_sg.id
+      aws_security_group.ec2_sg.id,
+      aws_security_group.lambda_sg.id
     ]
   }
 
@@ -40,6 +41,7 @@ resource "aws_db_instance" "postgres" {
   engine                 = "postgres"
   instance_class         = "db.t3.micro"
   allocated_storage      = 20
+  db_name                = "appdb"
   username               = "dbmaster"
   password               = var.db_password
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -52,3 +54,20 @@ resource "aws_db_instance" "postgres" {
   }
 }
 
+resource "aws_db_instance" "postgres_backup" {
+  identifier             = "${var.project_name}-db-backup"
+  engine                 = "postgres"
+  instance_class         = "db.t3.micro"
+  allocated_storage      = 20
+  db_name                = "backupdb"
+  username               = "dbmaster"
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  skip_final_snapshot    = true
+  publicly_accessible    = false
+
+  tags = {
+    Name = "${var.project_name}-postgres-backup"
+  }
+}

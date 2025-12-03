@@ -24,23 +24,119 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Resource = "arn:aws:logs:*:*:*"
       },
       {
-        Effect = "Allow",
-        Action = ["s3:ListBucket", "s3:GetObject", "s3:PutObject"],
+        Effect  = "Allow",
+        Action  = ["s3:ListBucket"],
         Resource = [
           aws_s3_bucket.app_bucket.arn,
-          "${aws_s3_bucket.app_bucket.arn}/*"
+          aws_s3_bucket.backup_bucket.arn
+        ]
+      },
+      {
+        Effect = "Allow",
+        Action = ["s3:GetObject", "s3:PutObject"],
+        Resource = [
+          "${aws_s3_bucket.app_bucket.arn}/*",
+          "${aws_s3_bucket.backup_bucket.arn}/*"
         ]
       }
     ]
   })
 }
 
-resource "aws_lambda_function" "s3_handler" {
-  function_name = "${var.project_name}-lambda-s3"
+resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_security_group" "lambda_sg" {
+  name        = "${var.project_name}-lambda-sg"
+  description = "Allow Lambda access to RDS"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-lambda-sg"
+  }
+}
+
+resource "aws_lambda_function" "s3_replicator" {
+  function_name = "${var.project_name}-lambda-s3-replicator"
   role          = aws_iam_role.lambda_role.arn
-  handler       = "index.handler"
+  handler       = "index.s3Replicator"
   runtime       = "nodejs20.x"
+  timeout       = 30
+
+  environment {
+    variables = {
+      SOURCE_BUCKET = aws_s3_bucket.app_bucket.bucket
+      DEST_BUCKET   = aws_s3_bucket.backup_bucket.bucket
+    }
+  }
 
   filename         = "${path.module}/lambda_payload.zip"
   source_code_hash = filebase64sha256("${path.module}/lambda_payload.zip")
+}
+
+resource "aws_lambda_function" "db_backup" {
+  function_name = "${var.project_name}-lambda-db-backup"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "index.dbBackup"
+  runtime       = "nodejs20.x"
+  timeout       = 60
+  memory_size   = 512
+
+  vpc_config {
+    subnet_ids         = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  environment {
+    variables = {
+      SOURCE_DB_HOST = aws_db_instance.postgres.address
+      SOURCE_DB_NAME = aws_db_instance.postgres.db_name
+      SOURCE_DB_PORT = aws_db_instance.postgres.port
+      TARGET_DB_HOST = aws_db_instance.postgres_backup.address
+      TARGET_DB_NAME = aws_db_instance.postgres_backup.db_name
+      TARGET_DB_PORT = aws_db_instance.postgres_backup.port
+      DB_USER        = aws_db_instance.postgres.username
+      DB_PASSWORD    = var.db_password
+      TABLE_NAME     = "inventory_sample"
+    }
+  }
+
+  filename         = "${path.module}/lambda_payload.zip"
+  source_code_hash = filebase64sha256("${path.module}/lambda_payload.zip")
+}
+
+resource "aws_lambda_permission" "allow_s3_invoke" {
+  statement_id  = "AllowExecutionFromS3"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.s3_replicator.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.app_bucket.arn
+}
+
+resource "aws_cloudwatch_event_rule" "db_backup_schedule" {
+  name                = "${var.project_name}-db-backup-schedule"
+  description         = "Invoke the DB backup Lambda once per hour"
+  schedule_expression = "rate(1 hour)"
+}
+
+resource "aws_cloudwatch_event_target" "db_backup_target" {
+  rule = aws_cloudwatch_event_rule.db_backup_schedule.name
+  arn  = aws_lambda_function.db_backup.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_invoke" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db_backup.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.db_backup_schedule.arn
 }
