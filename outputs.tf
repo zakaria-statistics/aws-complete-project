@@ -27,3 +27,7 @@ output "s3_replicator_lambda_arn" {
 output "db_backup_lambda_arn" {
   value = aws_lambda_function.db_backup.arn
 }
+
+output "db_seed_lambda_arn" {
+  value = aws_lambda_function.db_seed.arn
+}

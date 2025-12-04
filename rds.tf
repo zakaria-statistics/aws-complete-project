@@ -3,10 +3,11 @@ resource "aws_security_group" "rds_sg" {
   vpc_id = aws_vpc.main.id
 
   ingress {
-    description = "Postgres from EC2"
+    description = "Postgres from EC2 and lambda SG"
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
+    # Allow traffic from both the EC2 instance and the Lambda security group.
     security_groups = [
       aws_security_group.ec2_sg.id,
       aws_security_group.lambda_sg.id
